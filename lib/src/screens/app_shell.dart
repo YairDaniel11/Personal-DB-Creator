@@ -42,10 +42,6 @@ class _AppShellState extends State<AppShell> {
             selectedIndex: _index,
             onDestinationSelected: _goTo,
             labelType: NavigationRailLabelType.all,
-            leading: Padding(
-              padding: const EdgeInsets.symmetric(vertical: AppTokens.spaceSM),
-              child: Image.asset('assets/icon.png', width: 40, height: 40),
-            ),
             destinations: const [
               NavigationRailDestination(
                 icon: Icon(FluentIcons.building_bank_24_regular),
