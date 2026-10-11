@@ -5,6 +5,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 import '../controllers/app_controller.dart';
 import '../theme/app_surfaces.dart';
 import '../theme/app_tokens.dart';
+import '../widgets/app_title_bar.dart';
 import '../widgets/common_widgets.dart';
 import 'build_screen.dart';
 import 'help_screen.dart';
@@ -12,9 +13,12 @@ import 'links_screen.dart';
 import 'settings_screen.dart';
 
 class AppShell extends StatefulWidget {
-  const AppShell({super.key, required this.controller});
+  const AppShell({super.key, required this.controller, this.customTitleBar = false});
 
   final AppController controller;
+
+  /// שורת כותרת משלנו במקום מסגרת המערכת (רק כשהחלון הוכן בלי מסגרת).
+  final bool customTitleBar;
 
   @override
   State<AppShell> createState() => _AppShellState();
@@ -29,6 +33,7 @@ class _AppShellState extends State<AppShell> {
   ];
 
   static const _settingsIndex = 3;
+  static const _titles = ['בניית ספרייה', 'קישורים', 'עזרה', 'הגדרות'];
 
   int _index = 0;
 
@@ -47,7 +52,7 @@ class _AppShellState extends State<AppShell> {
     ];
     final hasTop = c.lastMessage != null || c.activity != null;
 
-    return CallbackShortcuts(
+    final body = CallbackShortcuts(
       bindings: {
         for (var i = 0; i < _shortcutKeys.length; i++) SingleActivator(_shortcutKeys[i], control: true): () => _goTo(i),
       },
@@ -136,6 +141,13 @@ class _AppShellState extends State<AppShell> {
           ),
         ),
       ),
+    );
+    if (!widget.customTitleBar) return body;
+    return Column(
+      children: [
+        AppTitleBar(screenTitle: _titles[_index]),
+        Expanded(child: body),
+      ],
     );
   }
 }
