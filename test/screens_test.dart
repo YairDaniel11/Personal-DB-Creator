@@ -93,7 +93,8 @@ void main() {
   setUpAll(() async {
     await _loadFont('Segoe UI', r'C:\Windows\Fonts\segoeui.ttf');
     await _loadFont('Consolas', r'C:\Windows\Fonts\consola.ttf');
-    final pub = '${Platform.environment['LOCALAPPDATA']}\\Pub\\Cache\\hosted\\pub.dev';
+    final cache = Platform.environment['PUB_CACHE'] ?? '${Platform.environment['LOCALAPPDATA']}\\Pub\\Cache';
+    final pub = '$cache\\hosted\\pub.dev';
     await _loadFont(
       'packages/fluentui_system_icons/FluentSystemIcons-Regular',
       '$pub\\fluentui_system_icons-1.1.273\\lib\\fonts\\FluentSystemIcons-Regular.ttf',
@@ -124,7 +125,10 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        if (i > 0) {
+        if (i == 3) {
+          await tester.tap(find.byKey(const ValueKey('nav-settings')));
+          await tester.pumpAndSettle();
+        } else if (i > 0) {
           final rail = tester.widget<NavigationRail>(find.byType(NavigationRail));
           rail.onDestinationSelected!(i);
           await tester.pumpAndSettle();

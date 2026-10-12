@@ -20,6 +20,7 @@ dependencies:
   sqlite3: ^3.7.0
   zstandard: ^1.5.0
   zstandard_native: ^1.5.0
+  window_manager: ^0.5.2
 
 dev_dependencies:
   flutter_test:

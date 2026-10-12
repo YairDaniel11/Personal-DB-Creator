@@ -49,9 +49,21 @@ class SettingsScreen extends StatelessWidget {
                 child: SegmentedButton<ThemeMode>(
                   showSelectedIcon: false,
                   segments: const [
-                    ButtonSegment(value: ThemeMode.system, label: Text('מערכת')),
-                    ButtonSegment(value: ThemeMode.light, label: Text('בהיר')),
-                    ButtonSegment(value: ThemeMode.dark, label: Text('כהה')),
+                    ButtonSegment(
+                      value: ThemeMode.system,
+                      icon: Icon(FluentIcons.desktop_24_regular, size: 18),
+                      label: Text('מערכת'),
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.light,
+                      icon: Icon(FluentIcons.weather_sunny_24_regular, size: 18),
+                      label: Text('בהיר'),
+                    ),
+                    ButtonSegment(
+                      value: ThemeMode.dark,
+                      icon: Icon(FluentIcons.weather_moon_24_regular, size: 18),
+                      label: Text('כהה'),
+                    ),
                   ],
                   selected: {c.themeMode},
                   onSelectionChanged: (s) => c.setThemeMode(s.first),
@@ -70,7 +82,14 @@ class SettingsScreen extends StatelessWidget {
                   children: [
                     const Text('מזהה הספרייה'),
                     const SizedBox(height: AppTokens.spaceXS),
-                    SelectableText(c.settings.libraryId, style: const TextStyle(fontFamily: 'Consolas')),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: SelectableText(c.settings.libraryId, style: const TextStyle(fontFamily: 'Consolas')),
+                        ),
+                        CopyButton(c.settings.libraryId, onCopied: () => c.showMessage('מזהה הספרייה הועתק.')),
+                      ],
+                    ),
                     const SizedBox(height: AppTokens.spaceXS),
                     const Hint('לפיו אוצריא מזהה שמסד חדש הוא גרסה של אותה ספרייה. אין צורך לשנות אותו.'),
                     const SizedBox(height: AppTokens.spaceSM),

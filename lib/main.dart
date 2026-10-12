@@ -1,17 +1,38 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
+import 'package:window_manager/window_manager.dart';
 
 import 'src/controllers/app_controller.dart';
 import 'src/screens/app_shell.dart';
 import 'src/theme/app_theme.dart';
 
-void main() {
+/// מסתיר את מסגרת החלון של המערכת; שורת הכותרת היא [AppTitleBar] שבתוך האפליקציה.
+/// כשל כאן הוא קוסמטי בלבד: נשארת מסגרת המערכת.
+Future<bool> _prepareWindow() async {
+  if (!(Platform.isWindows || Platform.isLinux)) return false;
+  try {
+    await windowManager.ensureInitialized();
+    await windowManager.setMinimumSize(const Size(900, 620));
+    await windowManager.setTitleBarStyle(TitleBarStyle.hidden, windowButtonVisibility: false);
+    return true;
+  } catch (e) {
+    debugPrint('הכנת החלון נכשלה: $e');
+    return false;
+  }
+}
+
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  runApp(const MyLibraryApp());
+  final customFrame = await _prepareWindow();
+  runApp(MyLibraryApp(customFrame: customFrame));
 }
 
 class MyLibraryApp extends StatefulWidget {
-  const MyLibraryApp({super.key});
+  const MyLibraryApp({super.key, this.customFrame = false});
+
+  final bool customFrame;
 
   @override
   State<MyLibraryApp> createState() => _MyLibraryAppState();
@@ -51,7 +72,7 @@ class _MyLibraryAppState extends State<MyLibraryApp> {
         ],
         builder: (context, child) =>
             Directionality(textDirection: TextDirection.rtl, child: child ?? const SizedBox.shrink()),
-        home: AppShell(controller: _controller),
+        home: AppShell(controller: _controller, customTitleBar: widget.customFrame),
       ),
     );
   }
