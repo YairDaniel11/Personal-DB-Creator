@@ -26,6 +26,13 @@ class LinksScreen extends StatefulWidget {
 class _LinksScreenState extends State<LinksScreen> {
   var _filter = _Filter.all;
   var _query = '';
+  final _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
 
   AppController get c => widget.controller;
 
@@ -106,6 +113,12 @@ class _LinksScreenState extends State<LinksScreen> {
               ],
             ),
           ),
+          if (reports == null && !c.busy)
+            const EmptyState(
+              icon: FluentIcons.link_24_regular,
+              title: 'עוד לא נבדקו קישורים',
+              message: 'לחצו "בדוק קישורים" כדי לראות לכל ספר לאיזה ספר הוא יקושר, בלי לבנות את הספרייה.',
+            ),
         ];
         if (reports != null) {
           final linked = reports.where((r) => r.status == LinkStatus.linked).toList();
@@ -121,33 +134,58 @@ class _LinksScreenState extends State<LinksScreen> {
               ],
             ),
           );
-          children.add(
-            Row(
-              children: [
-                Expanded(
-                  child: TextField(
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(FluentIcons.search_24_regular),
-                      hintText: 'חיפוש ספר',
-                      border: OutlineInputBorder(),
-                      isDense: true,
+          final notLinkedCount = reports.where((r) => r.status == LinkStatus.notLinked).length;
+          final otherCount = reports
+              .where((r) => r.status == LinkStatus.manual || r.status == LinkStatus.disabled)
+              .length;
+          final search = TextField(
+            controller: _search,
+            decoration: InputDecoration(
+              prefixIcon: const Icon(FluentIcons.search_24_regular),
+              hintText: 'חיפוש ספר',
+              isDense: true,
+              suffixIcon: _query.isEmpty
+                  ? null
+                  : IconButton(
+                      tooltip: 'נקה חיפוש',
+                      icon: const Icon(FluentIcons.dismiss_24_regular, size: 18),
+                      onPressed: () {
+                        _search.clear();
+                        setState(() => _query = '');
+                      },
                     ),
-                    onChanged: (v) => setState(() => _query = v.trim()),
-                  ),
-                ),
-                const SizedBox(width: AppTokens.spaceSM),
-                SegmentedButton<_Filter>(
-                  showSelectedIcon: false,
-                  segments: const [
-                    ButtonSegment(value: _Filter.all, label: Text('הכול')),
-                    ButtonSegment(value: _Filter.linked, label: Text('קושרו')),
-                    ButtonSegment(value: _Filter.notLinked, label: Text('לא קושרו')),
-                    ButtonSegment(value: _Filter.other, label: Text('אחר')),
-                  ],
-                  selected: {_filter},
-                  onSelectionChanged: (s) => setState(() => _filter = s.first),
-                ),
-              ],
+            ),
+            onChanged: (v) => setState(() => _query = v.trim()),
+          );
+          final filter = SegmentedButton<_Filter>(
+            showSelectedIcon: false,
+            segments: [
+              ButtonSegment(value: _Filter.all, label: Text('הכול (${reports.length})')),
+              ButtonSegment(value: _Filter.linked, label: Text('קושרו (${linked.length})')),
+              ButtonSegment(value: _Filter.notLinked, label: Text('לא קושרו ($notLinkedCount)')),
+              ButtonSegment(value: _Filter.other, label: Text('אחר ($otherCount)')),
+            ],
+            selected: {_filter},
+            onSelectionChanged: (s) => setState(() => _filter = s.first),
+          );
+          children.add(
+            LayoutBuilder(
+              builder: (context, box) => box.maxWidth < 900
+                  ? Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        search,
+                        const SizedBox(height: AppTokens.spaceSM),
+                        Align(alignment: AlignmentDirectional.centerStart, child: filter),
+                      ],
+                    )
+                  : Row(
+                      children: [
+                        Expanded(child: search),
+                        const SizedBox(width: AppTokens.spaceSM),
+                        filter,
+                      ],
+                    ),
             ),
           );
           final shown = reports.where((r) {
@@ -160,11 +198,19 @@ class _LinksScreenState extends State<LinksScreen> {
             };
           }).toList();
           if (shown.isEmpty) {
-            children.add(Center(child: Hint(reports.isEmpty ? 'אין ספרים.' : 'אין ספרים שמתאימים לסינון.')));
+            children.add(
+              EmptyState(
+                icon: FluentIcons.search_24_regular,
+                title: reports.isEmpty ? 'אין ספרים' : 'אין ספרים שמתאימים לסינון',
+              ),
+            );
           }
-          for (final r in shown) {
-            children.add(_BookRow(report: r, busy: c.busy, onChoose: () => _chooseTarget(r), theme: theme));
-          }
+          return PageBody(
+            itemCount: shown.length,
+            itemBuilder: (context, i) =>
+                _BookRow(report: shown[i], busy: c.busy, onChoose: () => _chooseTarget(shown[i]), theme: theme),
+            children: children,
+          );
         }
         return PageBody(children: children);
       },
@@ -295,7 +341,6 @@ class _TargetDialogState extends State<_TargetDialog> {
               decoration: const InputDecoration(
                 prefixIcon: Icon(FluentIcons.search_24_regular),
                 hintText: 'חיפוש בספרייה של אוצריא',
-                border: OutlineInputBorder(),
                 isDense: true,
               ),
               onChanged: (v) => setState(() => _q = v),
@@ -303,14 +348,19 @@ class _TargetDialogState extends State<_TargetDialog> {
             const SizedBox(height: AppTokens.spaceSM),
             Expanded(
               child: q.isEmpty
-                  ? const Center(child: Hint('הקלידו חלק משם הספר'))
+                  ? const Center(
+                      child: EmptyState(icon: FluentIcons.search_24_regular, title: 'הקלידו חלק משם הספר'),
+                    )
                   : matches.isEmpty
-                  ? const Center(child: Hint('לא נמצא ספר בשם הזה'))
+                  ? const Center(
+                      child: EmptyState(icon: FluentIcons.document_search_24_regular, title: 'לא נמצא ספר בשם הזה'),
+                    )
                   : ListView.builder(
                       itemCount: matches.length,
                       itemBuilder: (_, i) => ListTile(
                         dense: true,
                         title: Text(matches[i]),
+                        selected: matches[i] == widget.current,
                         onTap: () => Navigator.pop(context, _TargetChoice(matches[i])),
                       ),
                     ),

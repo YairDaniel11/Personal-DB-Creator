@@ -15,4 +15,6 @@ class AppTokens {
   static const double fontLG = 16;
   static const double fontXL = 18;
   static const double contentMaxWidth = 860;
+  static const Duration animFast = Duration(milliseconds: 150);
+  static const Duration animNormal = Duration(milliseconds: 250);
 }

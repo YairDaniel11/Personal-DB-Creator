@@ -6,6 +6,7 @@ import 'package:fluentui_system_icons/fluentui_system_icons.dart';
 
 import '../controllers/app_controller.dart';
 import '../engine/builder.dart' show BuildResult, formatBytes;
+import '../theme/app_surfaces.dart';
 import '../theme/app_tokens.dart';
 import '../widgets/app_card.dart';
 import '../widgets/common_widgets.dart';
@@ -26,12 +27,15 @@ class _BuildScreenState extends State<BuildScreen> {
   late final _author = TextEditingController(text: widget.controller.settings.author);
   late final _outName = TextEditingController(text: widget.controller.settings.outName);
   var _syncedOutName = '';
+  final _scroll = ScrollController();
+  late BuildResult? _seenResult = widget.controller.lastResult;
 
   @override
   void dispose() {
     _name.dispose();
     _author.dispose();
     _outName.dispose();
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -75,14 +79,33 @@ class _BuildScreenState extends State<BuildScreen> {
           _outName.text = c.settings.outName;
         }
         _syncedOutName = c.settings.outName;
-        return PageBody(
+        final result = c.lastResult != null && !c.busy ? c.lastResult : null;
+        if (result != null && !identical(result, _seenResult)) {
+          _seenResult = result;
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (!mounted || !_scroll.hasClients) return;
+            _scroll.animateTo(
+              _scroll.position.maxScrollExtent,
+              duration: AppTokens.animNormal * 2,
+              curve: Curves.easeOutCubic,
+            );
+          });
+        }
+        return Column(
           children: [
-            _booksCard(context),
-            _officialCard(context),
-            _detailsCard(context),
-            _outputCard(context),
-            _buildCard(context),
-            if (c.lastResult != null && !c.busy) _ResultCard(result: c.lastResult!, onGoLinks: widget.onGoLinks),
+            Expanded(
+              child: PageBody(
+                controller: _scroll,
+                children: [
+                  _booksCard(context),
+                  _officialCard(context),
+                  _detailsCard(context),
+                  _outputCard(context),
+                  if (result != null) _ResultCard(result: result, onGoLinks: widget.onGoLinks),
+                ],
+              ),
+            ),
+            _buildBar(context),
           ],
         );
       },
@@ -94,6 +117,7 @@ class _BuildScreenState extends State<BuildScreen> {
     final scan = c.scan;
     return AppCard(
       title: '1. תיקיית הספרים',
+      done: s.booksDir.isNotEmpty && (scan?.books ?? 0) > 0,
       icon: FluentIcons.folder_24_regular,
       info:
           'תיקייה שבה הספרים (קבצי TXT בפורמט אוצריא) מסודרים בתיקיות. כל תיקייה הופכת לקטגוריה באוצריא, '
@@ -101,10 +125,26 @@ class _BuildScreenState extends State<BuildScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (s.booksDir.isEmpty) const Hint('עדיין לא נבחרה תיקייה.') else PathText(s.booksDir),
+          if (s.booksDir.isEmpty)
+            const SizedBox(
+              width: double.infinity,
+              child: EmptyState(
+                icon: FluentIcons.folder_add_24_regular,
+                title: 'עדיין לא נבחרה תיקיית ספרים',
+                message: 'בחרו את התיקייה שבה הספרים שלכם מסודרים בתיקיות (קטגוריות).',
+              ),
+            )
+          else
+            PathText(s.booksDir),
           if (c.scanning) ...[
             const SizedBox(height: AppTokens.spaceSM),
-            const Hint('סורק...'),
+            const Row(
+              children: [
+                SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2)),
+                SizedBox(width: AppTokens.spaceSM),
+                Hint('סורק את התיקייה...'),
+              ],
+            ),
           ] else if (c.scanError != null) ...[
             const SizedBox(height: AppTokens.spaceSM),
             Hint(c.scanError!, error: true),
@@ -182,6 +222,7 @@ class _BuildScreenState extends State<BuildScreen> {
     final ok = c.hasOfficial;
     return AppCard(
       title: '2. הספרייה של אוצריא (seforim.db)',
+      done: ok,
       icon: FluentIcons.library_24_regular,
       info:
           'הקובץ seforim.db של אוצריא שכבר מותקנת במחשב. התוכנה קוראת אותו בלבד (בלי לשנות אותו), '
@@ -236,6 +277,7 @@ class _BuildScreenState extends State<BuildScreen> {
     final ok = c.hasOfficial;
     return AppCard(
       title: '3. פרטי הספרייה',
+      done: s.displayName.trim().isNotEmpty,
       icon: FluentIcons.edit_24_regular,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -304,6 +346,7 @@ class _BuildScreenState extends State<BuildScreen> {
     final exists = s.outPath.isNotEmpty && File(s.outPath).existsSync();
     return AppCard(
       title: '4. קובץ המסד',
+      done: s.outPath.isNotEmpty,
       icon: FluentIcons.database_24_regular,
       info:
           'הקובץ שייווצר ויוכנס לאוצריא. כשבונים שוב לאותו קובץ, הוא מתעדכן לגרסה הבאה, '
@@ -346,32 +389,48 @@ class _BuildScreenState extends State<BuildScreen> {
     );
   }
 
-  Widget _buildCard(BuildContext context) {
+  Widget _buildBar(BuildContext context) {
     final blocker = c.buildBlocker;
     final theme = Theme.of(context);
-    return AppCard(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          SizedBox(
-            height: 48,
-            child: FilledButton.icon(
-              onPressed: blocker == null && !c.busy && !c.scanning ? c.build : null,
-              icon: const Icon(FluentIcons.building_bank_toolbox_24_regular),
-              label: Text(
-                'בנה את הספרייה',
-                style: theme.textTheme.titleMedium?.copyWith(color: theme.colorScheme.onPrimary),
-              ),
+    final enabled = blocker == null && !c.busy && !c.scanning;
+    final hint =
+        blocker ?? (c.hasOfficial ? 'הכול נעשה במחשב, בלי חיבור לרשת.' : 'בלי seforim.db הספרייה תיבנה בלי קישורים.');
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: AppSurfaces.card(context),
+        border: Border(top: BorderSide(color: AppSurfaces.divider(context))),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: AppTokens.spaceMD, vertical: AppTokens.spaceSM + 2),
+        child: Center(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: AppTokens.contentMaxWidth),
+            child: Row(
+              children: [
+                Expanded(
+                  child: AnimatedSwitcher(
+                    duration: AppTokens.animFast,
+                    child: Align(key: ValueKey(hint), alignment: AlignmentDirectional.centerStart, child: Hint(hint)),
+                  ),
+                ),
+                const SizedBox(width: AppTokens.spaceMD),
+                SizedBox(
+                  height: 46,
+                  child: FilledButton.icon(
+                    onPressed: enabled ? c.build : null,
+                    icon: c.busy
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
+                        : const Icon(FluentIcons.building_bank_toolbox_24_regular),
+                    label: Text(
+                      'בנה את הספרייה',
+                      style: theme.textTheme.titleMedium?.copyWith(color: enabled ? theme.colorScheme.onPrimary : null),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
-          const SizedBox(height: AppTokens.spaceSM),
-          Center(
-            child: Hint(
-              blocker ??
-                  (c.hasOfficial ? 'הכול נעשה במחשב, בלי חיבור לרשת.' : 'בלי seforim.db הספרייה תיבנה בלי קישורים.'),
-            ),
-          ),
-        ],
+        ),
       ),
     );
   }
@@ -389,7 +448,7 @@ class _ResultCard extends StatelessWidget {
     final linked = r.reports.where((x) => x.count > 0).length;
     return AppCard(
       title: 'הספרייה נבנתה',
-      icon: FluentIcons.checkmark_circle_24_regular,
+      done: true,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
