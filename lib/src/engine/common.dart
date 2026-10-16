@@ -20,6 +20,16 @@ final _tags = RegExp(r'<[^>]+>');
 /// גרשיים, גרשיים עבריים וגרש.
 const quoteChars = '"״\'׳';
 
+final _dblQuotes = RegExp('[“”„״]');
+final _sglQuotes = RegExp('[‘’׳]');
+
+/// שם ספר במסד: גרשיים וגרש בצורה אחידה (כמו בספרייה הרשמית: " ו-' רגילים),
+/// כך ששם קובץ עם ״ או ׳ יוצא זהה לשם עם " או '.
+String dbBookTitle(String t) => t.replaceAll(_dblQuotes, '"').replaceAll(_sglQuotes, "'");
+
+/// שם קטגוריה (תיקייה) במסד: בספרייה הרשמית קטגוריות כתובות עם ״ (למשל תנ״ך), וגרש רגיל.
+String dbCategoryTitle(String t) => t.replaceAll(_dblQuotes, '״').replaceAll('"', '״').replaceAll(_sglQuotes, "'");
+
 String stripTags(String t) => t.replaceAll(_tags, '').trim();
 
 String removeTags(String t) => t.replaceAll(_tags, '');

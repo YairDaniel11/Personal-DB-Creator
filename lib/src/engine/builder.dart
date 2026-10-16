@@ -342,11 +342,12 @@ BuildResult buildLibrary(BuildOptions o, {ProgressFn? progress, void Function()?
     int catId(List<String> parts) {
       int? parent;
       for (var i = 0; i < parts.length; i++) {
-        final k = parts.sublist(0, i + 1).join('\u0000');
+        // המפתח מנורמל: תיקיות שנבדלות רק בצורת הגרשיים הן קטגוריה אחת
+        final k = [for (final x in parts.sublist(0, i + 1)) dbCategoryTitle(x)].join('\u0000');
         var id = cats[k];
         if (id == null) {
-          id = cats[k] = catIds.get(k);
-          insCat.execute([id, parent, parts[i], i, cats.length]);
+          id = cats[k] = catIds.get(parts.sublist(0, i + 1).join('\u0000'));
+          insCat.execute([id, parent, dbCategoryTitle(parts[i]), i, cats.length]);
         }
         parent = id;
       }
@@ -377,6 +378,7 @@ BuildResult buildLibrary(BuildOptions o, {ProgressFn? progress, void Function()?
 
     final bookIds = <String, int>{};
     final bookPaths = <String, String>{};
+    final dbTitles = <String>{};
     final tocWritten = <String>{};
     var totalLines = 0;
     for (var order = 1; order <= files.length; order++) {
@@ -388,12 +390,13 @@ BuildResult buildLibrary(BuildOptions o, {ProgressFn? progress, void Function()?
       final lines = readBookLines(f.path, dropTrailingEmpty: true);
       if (lines.length >= rowStride) throw BuildError('ספר ארוך מדי (מעל מיליון שורות): $title');
       // ספר בשם שכבר קיים (בתיקייה אחרת): מזהה חדש, והקישורים מתייחסים לראשון
-      final dup = bookIds.containsKey(title);
+      final dbTitle = dbBookTitle(title);
+      final dup = bookIds.containsKey(title) || !dbTitles.add(dbTitle);
       if (dup) {
         warnings.add('יש יותר מספר אחד בשם "$title"; הקישורים יתייחסו לראשון שבהם.');
       }
       final bid = bookAlloc.get(dup ? '$title\u0000${f.rel.join('/')}' : title);
-      insBook.execute([bid, cid, 1, title, order, lines.length]);
+      insBook.execute([bid, cid, 1, dbTitle, order, lines.length]);
       if (!dup) {
         bookIds[title] = bid;
         bookPaths[title] = f.path;
@@ -622,7 +625,7 @@ BuildResult buildLibrary(BuildOptions o, {ProgressFn? progress, void Function()?
           inc('json_dup_or_bad');
           continue;
         }
-        insExt.execute([bookIds[src], sl, o.libraryId, tgt, null, tl, kind]);
+        insExt.execute([bookIds[src], sl, o.libraryId, dbBookTitle(tgt), null, tl, kind]);
         innerLinks++;
       }
     }
