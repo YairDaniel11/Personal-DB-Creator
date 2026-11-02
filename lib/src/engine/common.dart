@@ -34,6 +34,35 @@ String stripTags(String t) => t.replaceAll(_tags, '').trim();
 
 String removeTags(String t) => t.replaceAll(_tags, '');
 
+/// מספר התווים הגלויים של שורת HTML (`line.charCount` של אוצריא): תוכן תגיות `<...>` מדולג,
+/// וכל ישות `&...;` נספרת כתו אחד. העתק של countVisibleChars (HtmlCharCounter.kt ב-SeforimLibrary),
+/// כולל הספירה ביחידות UTF-16 והוויתור על `;` אחרי 10 תווים.
+int countVisibleChars(String html) {
+  var count = 0;
+  var inTag = false;
+  final len = html.length;
+  for (var i = 0; i < len; i++) {
+    final c = html.codeUnitAt(i);
+    if (inTag) {
+      if (c == 0x3E) inTag = false; // >
+    } else if (c == 0x3C) {
+      inTag = true; // <
+    } else if (c == 0x26) {
+      // &
+      final end = i + 10 < len ? i + 10 : len;
+      var j = i + 1;
+      while (j < end && html.codeUnitAt(j) != 0x3B) {
+        j++;
+      }
+      count++;
+      if (j < end) i = j;
+    } else {
+      count++;
+    }
+  }
+  return count;
+}
+
 /// קורא קובץ טקסט כרשימת שורות: UTF-8 (תווים פגומים מוחלפים), בלי BOM, וכל סוגי סופי השורה.
 /// [dropTrailingEmpty] = כמו בבניית המסד (שורה ריקה אחרונה אינה שורה).
 List<String> readBookLines(String path, {bool dropTrailingEmpty = false}) {

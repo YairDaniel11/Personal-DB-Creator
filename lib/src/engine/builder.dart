@@ -7,7 +7,9 @@
 //   <ספר>_links.json -> קישורים בין ספרי המסד עצמו.
 // - מזהים יציבים: אם קובץ הפלט כבר קיים (בנייה קודמת של אותה ספרייה), ספרים/קטגוריות קיימים שומרים מזהה,
 //   וגרסת המסד עולה ב-1.
-// - דחיסה: בספרייה גדולה טקסט השורות נדחס ב-zstd עם המילון של הספרייה הרשמית (סכמה 6 של אוצריא).
+// - סכמה 7 של אוצריא: טקסט השורות ב-line_content (לא ב-line.content), book.contentHash, ו-schema_meta
+//   db_schema_version=7. טבלאות line_ref, line_dh, book_version/version_line וטבלאות סכמה 7 נוצרות ריקות.
+// - דחיסה: בספרייה גדולה טקסט השורות נדחס ב-zstd עם המילון של הספרייה הרשמית.
 
 import 'dart:convert';
 import 'dart:io';
@@ -17,6 +19,7 @@ import 'package:sqlite3/sqlite3.dart';
 
 import 'auto_links.dart';
 import 'common.dart';
+import 'content_hash.dart';
 import 'dh_lines.dart';
 import 'seforim_db.dart';
 import 'zstd.dart';
@@ -166,6 +169,15 @@ class PreviousDb {
   }
 }
 
+/// גרסת הסכמה של אוצריא שהמסד בנוי לפיה (schema_meta.db_schema_version; CURRENT_DB_SCHEMA_VERSION
+/// ב-PatchTables.kt של SeforimLibrary). בסכמה 7 נדרשים: line_ref, line_dh (עם dhDisplay), line_content
+/// בלי line.content, version_line עם content שמותר בו NULL, שש טבלאות סכמה 7 ו-book.contentHash
+/// (stampSchemaVersion ב-StampSchemaVersionCli.kt).
+const dbSchemaVersion = 7;
+
+/// הסכמה. טבלאות סכמה 4-7 הועתקו כלשונן מ-Database.sq של SeforimLibrary (line_content ו-version_line
+/// בצורתן אחרי SplitLineContentCli). בספרייה דחוסה line_content.content מחזיק מסגרות zstd (BLOB) כמו
+/// בספרייה הרשמית, שגם בה העמודה מוצהרת TEXT; אוצריא מפענחת לפי סוג הערך.
 String _schema(bool compressed) =>
     '''
 CREATE TABLE schema_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -180,15 +192,92 @@ CREATE TABLE book (
   title TEXT NOT NULL, heShortDesc TEXT, orderIndex INTEGER NOT NULL DEFAULT 999,
   totalLines INTEGER NOT NULL DEFAULT 0, isBaseBook INTEGER NOT NULL DEFAULT 0,
   hasSourceConnection INTEGER NOT NULL DEFAULT 0, hasAltStructures INTEGER NOT NULL DEFAULT 0,
-  fileType TEXT DEFAULT 'txt');
+  fileType TEXT DEFAULT 'txt',
+  contentHash INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE book_author (bookId INTEGER NOT NULL, authorId INTEGER NOT NULL, PRIMARY KEY (bookId, authorId));
 CREATE TABLE book_generation (bookId INTEGER NOT NULL, generationId INTEGER NOT NULL, PRIMARY KEY (bookId, generationId));
 CREATE TABLE line (
   id INTEGER PRIMARY KEY, bookId INTEGER NOT NULL, lineIndex INTEGER NOT NULL,
-  ${compressed ? '' : 'content TEXT NOT NULL, '}heRef TEXT, tocEntryId INTEGER);
+  heRef TEXT, tocEntryId INTEGER, charCount INTEGER NOT NULL DEFAULT 0);
 CREATE INDEX idx_line_book_index ON line(bookId, lineIndex);
-${compressed ? '''CREATE TABLE line_content (id INTEGER PRIMARY KEY NOT NULL, content BLOB NOT NULL);
-CREATE TABLE zstd_dict (id INTEGER PRIMARY KEY NOT NULL, dict BLOB NOT NULL);''' : ''}
+CREATE TABLE line_content (
+    id INTEGER PRIMARY KEY NOT NULL,
+    content TEXT NOT NULL,
+    FOREIGN KEY (id) REFERENCES line(id) ON DELETE CASCADE
+);
+${compressed ? 'CREATE TABLE zstd_dict (id INTEGER PRIMARY KEY NOT NULL, dict BLOB NOT NULL);' : ''}
+CREATE TABLE line_ref (
+    bookId INTEGER NOT NULL,
+    refKeyHash INTEGER NOT NULL,
+    lineIndex INTEGER NOT NULL,
+    PRIMARY KEY (bookId, refKeyHash, lineIndex)
+) WITHOUT ROWID;
+CREATE TABLE line_dh (
+    bookId INTEGER NOT NULL,
+    dhText TEXT NOT NULL,
+    lineIndex INTEGER NOT NULL,
+    dhDisplay TEXT NOT NULL,
+    PRIMARY KEY (bookId, dhText, lineIndex)
+) WITHOUT ROWID;
+CREATE TABLE book_version (
+    id INTEGER PRIMARY KEY NOT NULL,
+    bookId INTEGER NOT NULL,
+    versionTitle TEXT NOT NULL,
+    heVersionTitle TEXT,
+    versionSource TEXT,
+    priority REAL,
+    license TEXT,
+    versionNotes TEXT,
+    heVersionNotes TEXT,
+    hasContent INTEGER NOT NULL DEFAULT 0,
+    UNIQUE (bookId, versionTitle),
+    FOREIGN KEY (bookId) REFERENCES book(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_book_version_book ON book_version(bookId);
+CREATE TABLE version_line (
+    versionId INTEGER NOT NULL,
+    lineId INTEGER NOT NULL,
+    content TEXT,
+    charCount INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (versionId, lineId),
+    FOREIGN KEY (versionId) REFERENCES book_version(id) ON DELETE CASCADE,
+    FOREIGN KEY (lineId) REFERENCES line(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_version_line_line ON version_line(lineId);
+CREATE TABLE banner (
+    id INTEGER PRIMARY KEY NOT NULL,
+    text TEXT NOT NULL
+);
+CREATE TABLE book_banner (
+    bookId INTEGER PRIMARY KEY NOT NULL REFERENCES book(id) ON DELETE CASCADE,
+    bannerId INTEGER NOT NULL REFERENCES banner(id)
+);
+CREATE TABLE book_protection (
+    bookId INTEGER PRIMARY KEY NOT NULL REFERENCES book(id) ON DELETE CASCADE,
+    level INTEGER NOT NULL CHECK (level >= 1)
+);
+CREATE TABLE line_divine_name (
+    lineId INTEGER NOT NULL REFERENCES line(id) ON DELETE CASCADE,
+    charStart INTEGER NOT NULL,
+    span INTEGER NOT NULL,
+    PRIMARY KEY (lineId, charStart)
+) WITHOUT ROWID;
+CREATE TABLE line_note (
+    lineId INTEGER NOT NULL REFERENCES line(id) ON DELETE CASCADE,
+    noteIndex INTEGER NOT NULL,
+    charPos INTEGER NOT NULL,
+    hasMarker INTEGER NOT NULL,
+    body TEXT NOT NULL,
+    PRIMARY KEY (lineId, noteIndex)
+) WITHOUT ROWID;
+CREATE TABLE line_note_divine_name (
+    lineId INTEGER NOT NULL,
+    noteIndex INTEGER NOT NULL,
+    charStart INTEGER NOT NULL,
+    span INTEGER NOT NULL,
+    PRIMARY KEY (lineId, noteIndex, charStart),
+    FOREIGN KEY (lineId, noteIndex) REFERENCES line_note(lineId, noteIndex) ON DELETE CASCADE
+) WITHOUT ROWID;
 CREATE TABLE tocText (id INTEGER PRIMARY KEY, text TEXT NOT NULL UNIQUE);
 CREATE TABLE tocEntry (
   id INTEGER PRIMARY KEY, bookId INTEGER NOT NULL, parentId INTEGER, textId INTEGER NOT NULL,
@@ -318,6 +407,7 @@ BuildResult buildLibrary(BuildOptions o, {ProgressFn? progress, void Function()?
     final meta = {
       'library_id': o.libraryId,
       'db_version': '$version',
+      'db_schema_version': '$dbSchemaVersion',
       'display_name': o.displayName,
       'library_name': o.displayName, // המפתח שאוצריא קוראת בפועל
       'description': 'ספרים מותאמים לאוצריא, עם קישורים לספרייה הרשמית',
@@ -364,12 +454,10 @@ BuildResult buildLibrary(BuildOptions o, {ProgressFn? progress, void Function()?
     }
 
     final insBook = db.prepare(
-      'INSERT INTO book(id,categoryId,sourceId,title,orderIndex,totalLines) VALUES (?,?,?,?,?,?)',
+      'INSERT INTO book(id,categoryId,sourceId,title,orderIndex,totalLines,contentHash) VALUES (?,?,?,?,?,?,?)',
     );
-    final insLine = compressed
-        ? db.prepare('INSERT INTO line(id,bookId,lineIndex,tocEntryId) VALUES (?,?,?,?)')
-        : db.prepare('INSERT INTO line(id,bookId,lineIndex,content,tocEntryId) VALUES (?,?,?,?,?)');
-    final insContent = compressed ? db.prepare('INSERT INTO line_content VALUES (?,?)') : null;
+    final insLine = db.prepare('INSERT INTO line(id,bookId,lineIndex,tocEntryId,charCount) VALUES (?,?,?,?,?)');
+    final insContent = db.prepare('INSERT INTO line_content(id,content) VALUES (?,?)');
     final insToc = db.prepare('INSERT INTO tocEntry(id,bookId,parentId,textId,level,lineId) VALUES (?,?,?,?,?,?)');
     final insTocText = db.prepare('INSERT INTO tocText(id,text) VALUES (?,?)');
     final insLineToc = db.prepare('INSERT INTO line_toc VALUES (?,?)');
@@ -396,7 +484,8 @@ BuildResult buildLibrary(BuildOptions o, {ProgressFn? progress, void Function()?
         warnings.add('יש יותר מספר אחד בשם "$title"; הקישורים יתייחסו לראשון שבהם.');
       }
       final bid = bookAlloc.get(dup ? '$title\u0000${f.rel.join('/')}' : title);
-      insBook.execute([bid, cid, 1, dbTitle, order, lines.length]);
+      // החותם מחושב על הטקסט כפי שנכתב ל-line_content (לפני הדחיסה), כמו ב-BookContentHash.kt
+      insBook.execute([bid, cid, 1, dbTitle, order, lines.length, bookContentHash(lines)]);
       if (!dup) {
         bookIds[title] = bid;
         bookPaths[title] = f.path;
@@ -439,12 +528,8 @@ BuildResult buildLibrary(BuildOptions o, {ProgressFn? progress, void Function()?
           insToc.execute([curEntry, bid, parent, tid, level, lid]);
           stack.add((curEntry, level));
         }
-        if (compressed) {
-          insLine.execute([lid, bid, i, curEntry]);
-          insContent!.execute([lid, encoder!.compressText(content)]);
-        } else {
-          insLine.execute([lid, bid, i, content, curEntry]);
-        }
+        insLine.execute([lid, bid, i, curEntry, countVisibleChars(content)]);
+        insContent.execute([lid, compressed ? encoder!.compressText(content) : content]);
         if (curEntry != null) insLineToc.execute([lid, curEntry]);
       }
       for (final par in parents) {
@@ -453,10 +538,9 @@ BuildResult buildLibrary(BuildOptions o, {ProgressFn? progress, void Function()?
       inc('books');
       totalLines += lines.length;
     }
-    for (final s in [insCat, insBook, insLine, insToc, insTocText, insLineToc, insBookGen, insBookAuth]) {
+    for (final s in [insCat, insBook, insLine, insContent, insToc, insTocText, insLineToc, insBookGen, insBookAuth]) {
       s.close();
     }
-    insContent?.close();
     stats['lines'] = totalLines;
 
     // ── קישורים לספרייה הרשמית: נאספים, מתוקנים, ורק אז נכתבים ──
